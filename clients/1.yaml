@@ -1,0 +1,91 @@
+# Configuración de ejemplo para la cuenta de Chatwoot con account_id = 1.
+# Copiá este archivo como clients/<account_id>.yaml para cada cliente.
+# Los cambios se recargan solos (no hace falta reiniciar el servicio).
+
+negocio:
+  nombre: "Panadería La Espiga"
+  descripcion: >
+    Panadería artesanal de barrio en Palermo, Buenos Aires. Masa madre, facturas,
+    tortas por encargo y catering para eventos pequeños.
+  tono: >
+    cálido y cercano, tuteando con "vos" como en Argentina; emojis con moderación
+    (como mucho uno por mensaje)
+  idioma: español rioplatense
+
+# Instrucciones extra específicas de este negocio (se suman a las reglas generales).
+prompt_sistema: |
+  - Las tortas por encargo requieren al menos 48 horas de anticipación: recordalo siempre
+    que alguien quiera encargar una.
+  - Si preguntan por opciones sin TACC, aclará que no somos una cocina libre de gluten
+    y que puede haber contaminación cruzada.
+  - Para encargos, pedí nombre, fecha y horario de retiro.
+
+base_conocimiento:
+  faqs:
+    - pregunta: ¿Hacen envíos?
+      respuesta: >
+        Sí, con envío por moto en Palermo, Villa Crespo y Colegiales por $2.500.
+        Pedido mínimo para envío: $15.000.
+    - pregunta: ¿Qué medios de pago aceptan?
+      respuesta: Efectivo, transferencia y Mercado Pago. Tarjetas de débito y crédito solo en el local.
+    - pregunta: ¿Dónde están?
+      respuesta: Av. Ejemplo 1234, Palermo, CABA.
+    - pregunta: ¿Tienen productos veganos?
+      respuesta: Sí, el pan de masa madre y las medialunas veganas (solo sábados).
+
+  productos:
+    - nombre: Pan de masa madre (1 kg)
+      precio: 6500
+      moneda: ARS
+    - nombre: Medialunas de manteca (docena)
+      precio: 7200
+      moneda: ARS
+    - nombre: Medialunas veganas (docena)
+      precio: 8000
+      moneda: ARS
+      descripcion: Solo los sábados.
+    - nombre: Torta Rogel (20 cm, 10 porciones)
+      precio: 32000
+      moneda: ARS
+      descripcion: Por encargo, con 48 h de anticipación.
+    - nombre: Torta Chocotorta (20 cm, 10 porciones)
+      precio: 28000
+      moneda: ARS
+      descripcion: Por encargo, con 48 h de anticipación.
+    - nombre: Catering para eventos
+      precio: A cotizar según cantidad de personas
+      descripcion: Lo cotiza una persona del equipo.
+
+  horarios: |
+    Local: lunes a sábado de 7:00 a 20:00; domingos de 8:00 a 13:00.
+    Feriados: consultar.
+
+  politicas:
+    - Las señas de tortas por encargo son del 50% y no son reembolsables si se cancela con menos de 24 h.
+    - Los cambios de productos se aceptan solo el mismo día de la compra, con el ticket.
+    - Los precios pueden variar sin previo aviso; el precio válido es el confirmado al momento del pedido.
+
+atencion_humana:
+  zona_horaria: America/Argentina/Buenos_Aires
+  horario:
+    lunes: ["09:00-13:00", "15:00-19:00"]
+    martes: ["09:00-13:00", "15:00-19:00"]
+    miercoles: ["09:00-13:00", "15:00-19:00"]
+    jueves: ["09:00-13:00", "15:00-19:00"]
+    viernes: ["09:00-13:00", "15:00-19:00"]
+    sabado: ["09:00-13:00"]
+  mensaje_derivacion: >
+    ¡Listo! Te paso con alguien del equipo de La Espiga, en un ratito te responde 🙌
+  mensaje_derivacion_fuera_de_horario: >
+    Te paso con alguien del equipo de La Espiga. Ahora estamos fuera del horario de
+    atención (lunes a viernes 9 a 13 y 15 a 19, sábados 9 a 13), así que te respondemos
+    apenas volvamos. ¡Gracias por la paciencia!
+
+# Etiqueta que se agrega a la conversación cuando hay interés de compra.
+etiqueta_venta: venta
+
+# Opcional: tokens propios para este cliente, leídos de otras variables de entorno.
+# Si no se indican, se usan CHATWOOT_BOT_TOKEN y CHATWOOT_API_TOKEN.
+# chatwoot:
+#   bot_token_env: ESPIGA_BOT_TOKEN
+#   api_token_env: ESPIGA_API_TOKEN
