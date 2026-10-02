@@ -84,6 +84,13 @@ atencion_humana:
 # Etiqueta que se agrega a la conversación cuando hay interés de compra.
 etiqueta_venta: venta
 
+# Opcional: topes de respuestas automáticas para este cliente (pisan los valores de
+# RATE_LIMIT_CONVERSATION_PER_HOUR / RATE_LIMIT_ACCOUNT_PER_DAY; 0 = sin límite).
+# Al superarlos, la conversación se deriva a una persona.
+# limites:
+#   respuestas_por_conversacion_por_hora: 20
+#   respuestas_por_dia: 500
+
 # Opcional: tokens propios para este cliente, leídos de otras variables de entorno.
 # Si no se indican, se usan CHATWOOT_BOT_TOKEN y CHATWOOT_API_TOKEN.
 # chatwoot:

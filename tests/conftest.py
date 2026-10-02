@@ -29,6 +29,17 @@ def make_settings(**overrides: Any) -> Settings:
         debounce_seconds=0,
         max_agent_steps=6,
         log_level="INFO",
+        transcription_provider="none",
+        transcription_api_key="",
+        transcription_model="",
+        transcription_base_url="",
+        transcription_language="es",
+        media_max_per_run=4,
+        media_allowed_hosts=(),
+        usage_file=None,
+        admin_token="",
+        rate_limit_conversation_per_hour=20,
+        rate_limit_account_per_day=1000,
     )
     base.update(overrides)
     return Settings(**base)
@@ -75,8 +86,15 @@ def text(value: str) -> SimpleNamespace:
     return SimpleNamespace(type="text", text=value)
 
 
-def response(*blocks: SimpleNamespace, stop_reason: str = "tool_use", stop_details: Any = None) -> SimpleNamespace:
-    return SimpleNamespace(content=list(blocks), stop_reason=stop_reason, stop_details=stop_details)
+def response(
+    *blocks: SimpleNamespace, stop_reason: str = "tool_use", stop_details: Any = None, usage: Any = None
+) -> SimpleNamespace:
+    usage = usage or SimpleNamespace(
+        input_tokens=1000, output_tokens=100, cache_creation_input_tokens=0, cache_read_input_tokens=4000
+    )
+    return SimpleNamespace(
+        content=list(blocks), stop_reason=stop_reason, stop_details=stop_details, usage=usage, model="claude-opus-5"
+    )
 
 
 class FakeLLM:

@@ -8,10 +8,13 @@ from collections import OrderedDict
 from dataclasses import dataclass
 from typing import Any
 
-from .agent import Agent, ConversationActions, ConversationRef, build_messages
+from .agent import Agent, ConversationActions, ConversationRef, HumanTookOver, RunResult, build_messages
 from .chatwoot import INCOMING, ChatwootClient, ChatwootError, message_type_code
 from .clients import ClientConfig, ClientNotFound, ClientRegistry
 from .config import Settings
+from .limits import RateLimiter
+from .media import MediaProcessor, pending_incoming_ids
+from .usage import UsageTracker
 
 logger = logging.getLogger(__name__)
 
@@ -30,11 +33,25 @@ class IncomingEvent:
 
 
 class BotService:
-    def __init__(self, settings: Settings, registry: ClientRegistry, chatwoot: ChatwootClient, agent: Agent):
+    def __init__(
+        self,
+        settings: Settings,
+        registry: ClientRegistry,
+        chatwoot: ChatwootClient,
+        agent: Agent,
+        *,
+        media: MediaProcessor | None = None,
+        usage: UsageTracker | None = None,
+        limiter: RateLimiter | None = None,
+    ):
         self.settings = settings
         self.registry = registry
         self.chatwoot = chatwoot
         self.agent = agent
+        self.media = media
+        self.usage = usage
+        self.limiter = limiter or RateLimiter()
+        self._runs = 0
         self._latest: dict[tuple[int, int], int] = {}
         self._locks: dict[tuple[int, int], asyncio.Lock] = {}
         self._seen: OrderedDict[int, None] = OrderedDict()
@@ -114,7 +131,21 @@ class BotService:
                 return
 
             history = await self._history(client, event)
-            messages = build_messages(history)
+            if not pending_incoming_ids(history):
+                logger.info("Conversación %s sin mensajes pendientes de respuesta", ref.conversation_id)
+                return
+
+            limit_reason = self._check_limits(client, event)
+            if limit_reason:
+                logger.warning("Cuenta %s conv %s: %s", ref.account_id, ref.conversation_id, limit_reason)
+                result = await self._handoff(client, ref, limit_reason)
+                await self._record_run(ref, "rate_limited", result)
+                return
+
+            attachments = (
+                await self.media.render(history, ref.account_id, ref.conversation_id) if self.media else None
+            )
+            messages = build_messages(history, attachments)
             if not messages or messages[-1]["role"] != "user":
                 logger.info("Conversación %s sin mensajes pendientes de respuesta", ref.conversation_id)
                 return
@@ -131,10 +162,45 @@ class BotService:
                 ref.account_id, ref.conversation_id, len(result.replies), result.handed_off,
                 result.interest_registered, result.aborted_reason,
             )
+            outcome = result.aborted_reason or ("handed_off" if result.handed_off else "replied")
+            await self._record_run(ref, outcome, result)
         except Exception:
             logger.exception("Error procesando mensaje %s (cuenta %s, conv %s)",
                              event.message_id, ref.account_id, ref.conversation_id)
-            await self._handoff_on_error(client, ref)
+            result = await self._handoff(client, ref, "Error técnico del asistente automático (ver logs del bot).")
+            await self._record_run(ref, "error", result)
+
+    def _check_limits(self, client: ClientConfig, event: IncomingEvent) -> str | None:
+        """Devuelve el motivo si se superó algún límite de respuestas automáticas."""
+        self._runs += 1
+        if self._runs % 500 == 0:
+            self.limiter.prune(86_400)
+        por_hora = client.limites.respuestas_por_conversacion_por_hora
+        if por_hora is None:
+            por_hora = self.settings.rate_limit_conversation_per_hour
+        por_dia = client.limites.respuestas_por_dia
+        if por_dia is None:
+            por_dia = self.settings.rate_limit_account_per_day
+
+        if not self.limiter.allow(("conversacion", event.key), por_hora, 3600):
+            return (f"La conversación superó el límite de {por_hora} respuestas automáticas por hora "
+                    "(posible spam o una consulta que conviene atender en persona).")
+        if not self.limiter.allow(("cuenta", event.account_id), por_dia, 86_400):
+            return f"La cuenta alcanzó el límite de {por_dia} respuestas automáticas en 24 horas."
+        return None
+
+    async def _record_run(self, ref: ConversationRef, outcome: str, result: RunResult | None) -> None:
+        if not self.usage:
+            return
+        await self.usage.record(
+            "run",
+            ref.account_id,
+            ref.conversation_id,
+            outcome=outcome,
+            replies=len(result.replies) if result else 0,
+            handed_off=bool(result and result.handed_off),
+            interest_registered=bool(result and result.interest_registered),
+        )
 
     async def _history(self, client: ClientConfig, event: IncomingEvent) -> list[dict[str, Any]]:
         token = client.api_token(self.settings.chatwoot_api_token) or client.bot_token(self.settings.chatwoot_bot_token)
@@ -155,10 +221,15 @@ class BotService:
             history.append(event.message)
         return history
 
-    async def _handoff_on_error(self, client: ClientConfig, ref: ConversationRef) -> None:
-        # Si el bot falla, es mejor pasar la conversación a una persona que dejar al cliente sin respuesta.
+    async def _handoff(self, client: ClientConfig, ref: ConversationRef, motivo: str) -> RunResult | None:
+        # Ante errores o límites, es mejor pasar la conversación a una persona que dejar al
+        # cliente sin respuesta.
+        actions = ConversationActions(self.chatwoot, client, ref)
         try:
-            actions = ConversationActions(self.chatwoot, client, ref)
-            await actions.handoff("Error técnico del asistente automático (ver logs del bot).")
+            await actions.handoff(motivo)
+        except HumanTookOver:
+            actions.result.aborted_reason = "human_took_over"
         except Exception:
-            logger.exception("Tampoco se pudo derivar la conversación %s", ref.conversation_id)
+            logger.exception("No se pudo derivar la conversación %s", ref.conversation_id)
+            return None
+        return actions.result

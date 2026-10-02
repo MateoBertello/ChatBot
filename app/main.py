@@ -2,22 +2,29 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import hmac
 import json
 import logging
+import re
 import time
 from contextlib import asynccontextmanager
 from typing import Any
+from urllib.parse import urlparse
 
 import anthropic
+import httpx
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Request
 
 from .agent import Agent
 from .chatwoot import ChatwootClient
 from .clients import ClientRegistry
 from .config import get_settings
+from .media import MediaProcessor
 from .service import BotService
+from .transcription import build_transcriber
+from .usage import UsageTracker
 
 logger = logging.getLogger("chatbot")
 
@@ -62,20 +69,35 @@ def build_service() -> tuple[BotService, list[Any]]:
     settings = get_settings()
     chatwoot = ChatwootClient(settings.chatwoot_url)
     llm = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
-    service = BotService(settings, ClientRegistry(settings.clients_dir), chatwoot, Agent(llm, chatwoot, settings))
-    return service, [chatwoot, llm]
+    usage = UsageTracker(settings.usage_file)
+    media_http = httpx.AsyncClient(timeout=60.0)
+    chatwoot_host = urlparse(settings.chatwoot_url).hostname or ""
+    media = MediaProcessor(
+        media_http,
+        allowed_hosts=(chatwoot_host, *settings.media_allowed_hosts),
+        transcriber=build_transcriber(settings, media_http),
+        usage=usage,
+        max_media_per_run=settings.media_max_per_run,
+    )
+    service = BotService(
+        settings,
+        ClientRegistry(settings.clients_dir),
+        chatwoot,
+        Agent(llm, chatwoot, settings, usage=usage),
+        media=media,
+        usage=usage,
+    )
+    return service, [chatwoot, llm, media_http]
 
 
 def create_app(service: BotService | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         closables: list[Any] = []
-        if getattr(app.state, "service", None) is None:
+        settings = app.state.service.settings if app.state.service else get_settings()
+        logging.basicConfig(level=settings.log_level, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+        if app.state.service is None:
             app.state.service, closables = build_service()
-        logging.basicConfig(
-            level=app.state.service.settings.log_level,
-            format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-        )
         yield
         for resource in closables:
             await (resource.aclose() if hasattr(resource, "aclose") else resource.close())
@@ -86,6 +108,21 @@ def create_app(service: BotService | None = None) -> FastAPI:
     @app.get("/health")
     async def health() -> dict[str, str]:
         return {"status": "ok"}
+
+    @app.get("/usage")
+    async def usage(request: Request, mes: str | None = None, account_id: int | None = None) -> dict[str, Any]:
+        """Consumo por cuenta (para facturar). Requiere ADMIN_TOKEN; `mes` con formato YYYY-MM."""
+        svc: BotService = request.app.state.service
+        admin_token = svc.settings.admin_token
+        if not admin_token or svc.usage is None:
+            raise HTTPException(status_code=404, detail="not found")
+        auth = request.headers.get("authorization") or ""
+        provided = request.query_params.get("token") or (auth[7:].strip() if auth.lower().startswith("bearer ") else "")
+        if not hmac.compare_digest(provided.encode(), admin_token.encode()):
+            raise HTTPException(status_code=401, detail="unauthorized")
+        if mes and not re.fullmatch(r"\d{4}-\d{2}", mes):
+            raise HTTPException(status_code=400, detail="mes debe tener formato YYYY-MM")
+        return await asyncio.to_thread(svc.usage.summarize, mes, account_id)
 
     @app.post("/webhook")
     async def webhook(request: Request, background: BackgroundTasks) -> dict[str, str]:

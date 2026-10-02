@@ -3,6 +3,7 @@ FROM python:3.12-slim
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     CLIENTS_DIR=/clients \
+    USAGE_FILE=/data/usage.jsonl \
     PORT=8000
 
 WORKDIR /app
@@ -14,8 +15,10 @@ COPY app ./app
 # Configuraciones de clientes. En producción conviene montar un volumen en /clients.
 COPY clients /clients
 
-RUN useradd --create-home --uid 10001 bot && chown -R bot /app /clients
+RUN useradd --create-home --uid 10001 bot && mkdir -p /data && chown -R bot /app /clients /data
 USER bot
+# Registro de consumo: montá un volumen acá para que sobreviva a los redeploys.
+VOLUME ["/data"]
 
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s \

@@ -112,6 +112,14 @@ class ChatwootOverrides(BaseModel):
     api_token_env: str | None = None
 
 
+class Limites(BaseModel):
+    """Topes de respuestas automáticas. Si no se indican, se usan los de las variables de
+    entorno. 0 = sin límite."""
+
+    respuestas_por_conversacion_por_hora: int | None = None
+    respuestas_por_dia: int | None = None
+
+
 class ClientConfig(BaseModel):
     account_id: int
     negocio: Negocio
@@ -119,6 +127,7 @@ class ClientConfig(BaseModel):
     base_conocimiento: BaseConocimiento = Field(default_factory=BaseConocimiento)
     atencion_humana: AtencionHumana = Field(default_factory=AtencionHumana)
     etiqueta_venta: str = "venta"
+    limites: Limites = Field(default_factory=Limites)
     chatwoot: ChatwootOverrides = Field(default_factory=ChatwootOverrides)
 
     def bot_token(self, default: str) -> str:

@@ -42,6 +42,44 @@ WhatsApp ─▶ Chatwoot ──(webhook message_created)──▶ POST /webhook
   deriva la conversación a una persona en lugar de dejar al cliente sin respuesta, y
   registra el error en los logs.
 
+### Notas de voz, imágenes y PDFs
+
+- **Notas de voz:** se transcriben con una API compatible con OpenAI (Groq, OpenAI o un
+  servidor Whisper propio, ver `TRANSCRIPTION_*`) y Claude recibe el texto. Si Chatwoot ya
+  trae su propia transcripción (`transcribed_text`), se usa esa y no se paga otra.
+  Las transcripciones quedan en memoria, así que cada audio se transcribe una sola vez.
+- **Imágenes** (JPEG, PNG, GIF, WebP, hasta 5 MB) **y PDFs** (hasta 10 MB): se descargan
+  de Chatwoot y Claude los ve directamente.
+- **Solo se procesan los adjuntos de los mensajes que el bot está por responder.** Los
+  anteriores aparecen como texto ("[El cliente envió una imagen]"), así no se pagan
+  tokens de imagen en cada turno. Como máximo `MEDIA_MAX_PER_RUN` imágenes/PDFs por
+  respuesta (4 por defecto).
+- Ubicaciones y contactos compartidos se le pasan a Claude como texto. Los videos no se
+  procesan.
+- Por seguridad, el bot descarga adjuntos solo desde el host de `CHATWOOT_URL` (y los de
+  `MEDIA_ALLOWED_HOSTS`); sigue las redirecciones a S3/almacenamiento.
+- El prompt le indica **no confirmar pagos a partir de un comprobante**: agradece y deriva
+  para que una persona lo verifique.
+
+### Consumo por cliente y límites
+
+- Cada llamada a Claude, cada transcripción y cada mensaje atendido se registran en
+  `USAGE_FILE` (JSON por línea) con el `account_id`, los tokens y un **costo estimado** en
+  USD con precios de lista (tabla `PRICES_PER_MTOK` en `app/usage.py`).
+- `GET /usage` devuelve los totales por cuenta (requiere `ADMIN_TOKEN`):
+
+  ```bash
+  curl -H "Authorization: Bearer $ADMIN_TOKEN" "https://bot.tudominio.com/usage?mes=2026-10"
+  curl -H "Authorization: Bearer $ADMIN_TOKEN" "https://bot.tudominio.com/usage?mes=2026-10&account_id=1"
+  ```
+
+  Devuelve, por cuenta: mensajes atendidos, derivaciones, ventas registradas, mensajes
+  limitados, llamadas y tokens de Claude, costo estimado y transcripciones.
+- **Límites:** como máximo `RATE_LIMIT_CONVERSATION_PER_HOUR` respuestas automáticas por
+  conversación por hora (20) y `RATE_LIMIT_ACCOUNT_PER_DAY` por cuenta cada 24 h (1000).
+  Cada cliente puede pisarlos en su YAML (`limites`). Al superarlos, la conversación se
+  deriva a una persona con una nota que explica el motivo. `0` = sin límite.
+
 ### Detalles del uso de Claude
 
 - Modelo por defecto `claude-opus-5` (configurable con `CLAUDE_MODEL`), con *adaptive
@@ -62,13 +100,17 @@ WhatsApp ─▶ Chatwoot ──(webhook message_created)──▶ POST /webhook
 
 ```
 app/
-  main.py       FastAPI: /webhook, /health y validación del secreto
-  service.py    filtrado de eventos, deduplicado, agrupación y orquestación
-  agent.py      llamada a Claude, herramientas y conversión del historial
-  prompts.py    prompt de sistema a partir del YAML del cliente
-  clients.py    carga/validación de clients/<account_id>.yaml y horario humano
-  chatwoot.py   cliente de la API de Chatwoot
-  config.py     variables de entorno
+  main.py           FastAPI: /webhook, /usage, /health y validación del secreto
+  service.py        filtrado de eventos, deduplicado, agrupación, límites y orquestación
+  agent.py          llamada a Claude, herramientas y conversión del historial
+  media.py          notas de voz, imágenes, PDFs y otros adjuntos
+  transcription.py  cliente de transcripción (API compatible con OpenAI)
+  usage.py          registro de consumo y costo estimado por cuenta
+  limits.py         límites de respuestas (ventana deslizante)
+  prompts.py        prompt de sistema a partir del YAML del cliente
+  clients.py        carga/validación de clients/<account_id>.yaml y horario humano
+  chatwoot.py       cliente de la API de Chatwoot
+  config.py         variables de entorno
 clients/1.yaml  cliente de ejemplo (Panadería La Espiga, account_id 1)
 tests/          tests con pytest
 ```
@@ -91,6 +133,17 @@ tests/          tests con pytest
 | `DEBOUNCE_SECONDS` | no | Espera para agrupar mensajes seguidos. Por defecto `2`. |
 | `MAX_AGENT_STEPS` | no | Máximo de llamadas a Claude por mensaje. Por defecto `6`. |
 | `LOG_LEVEL` | no | Por defecto `INFO`. |
+| `TRANSCRIPTION_PROVIDER` | no | `none` (por defecto), `groq`, `openai` o `custom`. |
+| `TRANSCRIPTION_API_KEY` | si hay proveedor | API key del proveedor de transcripción. |
+| `TRANSCRIPTION_MODEL` | no | Por defecto `whisper-large-v3-turbo` (Groq) o `gpt-4o-mini-transcribe` (OpenAI). |
+| `TRANSCRIPTION_BASE_URL` | con `custom` | URL base de una API compatible con OpenAI, ej. `http://whisper:8000/v1`. |
+| `TRANSCRIPTION_LANGUAGE` | no | Idioma de los audios. Por defecto `es`. |
+| `MEDIA_MAX_PER_RUN` | no | Imágenes/PDFs enviados a Claude por respuesta. Por defecto `4`. |
+| `MEDIA_ALLOWED_HOSTS` | no | Hosts extra (separados por coma) desde donde descargar adjuntos. Necesario si el `FRONTEND_URL` de Chatwoot es distinto de `CHATWOOT_URL`. |
+| `USAGE_FILE` | no | Archivo de consumo. Por defecto `data/usage.jsonl` (en Docker, `/data/usage.jsonl`). Vacío = no registrar. |
+| `ADMIN_TOKEN` | no | Habilita `GET /usage`. Vacío = endpoint deshabilitado. |
+| `RATE_LIMIT_CONVERSATION_PER_HOUR` | no | Respuestas automáticas por conversación por hora. Por defecto `20`. |
+| `RATE_LIMIT_ACCOUNT_PER_DAY` | no | Respuestas automáticas por cuenta cada 24 h. Por defecto `1000`. |
 
 > **Importante sobre el historial:** Chatwoot no permite que un token de Agent Bot liste
 > los mensajes de una conversación (sí puede enviar mensajes, cambiar el estado y manejar
@@ -140,6 +193,10 @@ atencion_humana:
 
 etiqueta_venta: venta      # opcional
 
+limites:                   # opcional; pisa RATE_LIMIT_* (0 = sin límite)
+  respuestas_por_conversacion_por_hora: 20
+  respuestas_por_dia: 500
+
 chatwoot:                  # opcional: tokens propios de este cliente
   bot_token_env: MI_NEGOCIO_BOT_TOKEN
   api_token_env: MI_NEGOCIO_API_TOKEN
@@ -161,6 +218,7 @@ docker run -d --name chatwoot-bot --restart unless-stopped \
   -p 8000:8000 \
   --env-file .env \
   -v $(pwd)/clients:/clients:ro \
+  -v chatwoot-bot-data:/data \
   chatwoot-claude-bot
 ```
 
@@ -177,8 +235,12 @@ services:
     env_file: .env
     volumes:
       - ./clients:/clients:ro
+      - bot-data:/data
     ports:
       - "8000:8000"
+
+volumes:
+  bot-data:
 ```
 
 Recomendaciones:
@@ -186,8 +248,9 @@ Recomendaciones:
 - Exponé el servicio por **HTTPS** detrás de un reverse proxy (Nginx, Caddy, Traefik) o
   en una plataforma como Railway, Render, Fly.io o Cloud Run (el contenedor escucha en
   `$PORT`, por defecto 8000).
-- Usá **una sola instancia/worker**: el deduplicado y la agrupación de mensajes se
-  guardan en memoria.
+- Usá **una sola instancia/worker**: el deduplicado, la agrupación de mensajes, los
+  límites y la caché de transcripciones se guardan en memoria (se reinician con el
+  servicio). El registro de consumo sí persiste en `/data`.
 - `GET /health` sirve como health check.
 - Si Chatwoot corre en el mismo host, el bot debe poder alcanzar `CHATWOOT_URL` y Chatwoot
   debe poder alcanzar la URL del bot.

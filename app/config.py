@@ -34,6 +34,20 @@ class Settings:
     debounce_seconds: float
     max_agent_steps: int
     log_level: str
+    # Transcripción de notas de voz (API compatible con OpenAI: OpenAI, Groq, etc.)
+    transcription_provider: str
+    transcription_api_key: str
+    transcription_model: str
+    transcription_base_url: str
+    transcription_language: str
+    # Imágenes, PDFs y audios
+    media_max_per_run: int
+    media_allowed_hosts: tuple[str, ...]
+    # Consumo y límites
+    usage_file: Path | None
+    admin_token: str
+    rate_limit_conversation_per_hour: int
+    rate_limit_account_per_day: int
 
 
 @lru_cache
@@ -53,4 +67,15 @@ def get_settings() -> Settings:
         debounce_seconds=float(_env("DEBOUNCE_SECONDS", "2")),
         max_agent_steps=int(_env("MAX_AGENT_STEPS", "6")),
         log_level=_env("LOG_LEVEL", "INFO").upper(),
+        transcription_provider=_env("TRANSCRIPTION_PROVIDER", "none").lower(),
+        transcription_api_key=_env("TRANSCRIPTION_API_KEY", ""),
+        transcription_model=_env("TRANSCRIPTION_MODEL", ""),
+        transcription_base_url=_env("TRANSCRIPTION_BASE_URL", ""),
+        transcription_language=_env("TRANSCRIPTION_LANGUAGE", "es"),
+        media_max_per_run=int(_env("MEDIA_MAX_PER_RUN", "4")),
+        media_allowed_hosts=tuple(h.strip().lower() for h in _env("MEDIA_ALLOWED_HOSTS", "").split(",") if h.strip()),
+        usage_file=Path(_env("USAGE_FILE", "data/usage.jsonl")) if _env("USAGE_FILE", "data/usage.jsonl") else None,
+        admin_token=_env("ADMIN_TOKEN", ""),
+        rate_limit_conversation_per_hour=int(_env("RATE_LIMIT_CONVERSATION_PER_HOUR", "20")),
+        rate_limit_account_per_day=int(_env("RATE_LIMIT_ACCOUNT_PER_DAY", "1000")),
     )

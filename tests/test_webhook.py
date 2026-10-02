@@ -138,3 +138,83 @@ async def test_debounce_responde_solo_al_ultimo(settings):
     e2 = service.accept(incoming(message_id=101, content="¿y a Colegiales?"))
     await asyncio.gather(service.process(e1), service.process(e2))
     assert len(llm.calls) == 1 and cw.sent == [{"content": "Respuesta única", "private": False}]
+
+
+def test_limite_por_conversacion_deriva(settings):
+    from .conftest import make_settings
+
+    settings = make_settings(rate_limit_conversation_per_hour=1)
+    client, _, cw, llm = make(settings)
+    client.post("/webhook?token=s3cret", json=incoming(message_id=100))
+    cw.status = "pending"  # el bot respondió; sigue pendiente
+    client.post("/webhook?token=s3cret", json=incoming(message_id=101))
+    assert len(llm.calls) == 1
+    assert cw.statuses == ["open"]
+    assert any(m["private"] and "límite" in m["content"] for m in cw.sent)
+
+
+def test_limite_por_cuenta_en_yaml(settings, tmp_path):
+    import shutil
+
+    from .conftest import make_settings
+
+    shutil.copy(ROOT / "clients" / "1.yaml", tmp_path / "1.yaml")
+    with (tmp_path / "1.yaml").open("a") as fh:
+        fh.write("\nlimites:\n  respuestas_por_dia: 0\n  respuestas_por_conversacion_por_hora: 0\n")
+    settings = make_settings(clients_dir=tmp_path, rate_limit_conversation_per_hour=1)
+    cw = FakeChatwoot()
+    llm = FakeLLM(*[response(tool_use("responder", texto="ok")) for _ in range(3)])
+    service = BotService(settings, ClientRegistry(tmp_path), cw, Agent(llm, cw, settings))
+    client = TestClient(create_app(service))
+    for message_id in (100, 101, 102):
+        client.post("/webhook?token=s3cret", json=incoming(message_id=message_id))
+    assert len(llm.calls) == 3 and not cw.statuses  # 0 = sin límite, pisa el valor del entorno
+
+
+def test_registra_consumo_y_endpoint_usage(tmp_path):
+    from app.usage import UsageTracker
+
+    from .conftest import make_settings
+
+    settings = make_settings(admin_token="admin", usage_file=tmp_path / "u.jsonl")
+    cw = FakeChatwoot()
+    llm = FakeLLM(response(tool_use("responder", texto="Sí, hacemos envíos.")))
+    usage = UsageTracker(settings.usage_file)
+    service = BotService(settings, ClientRegistry(ROOT / "clients"), cw,
+                         Agent(llm, cw, settings, usage=usage), usage=usage)
+    client = TestClient(create_app(service))
+    client.post("/webhook?token=s3cret", json=incoming())
+
+    assert client.get("/usage").status_code == 401
+    assert client.get("/usage?token=otro").status_code == 401
+    assert client.get("/usage?mes=octubre", headers={"Authorization": "Bearer admin"}).status_code == 400
+    data = client.get("/usage", headers={"Authorization": "Bearer admin"}).json()
+    acc = data["accounts"]["1"]
+    assert acc["mensajes_atendidos"] == 1 and acc["llamadas_claude"] == 1
+    assert acc["costo_estimado_usd"] == 0.0095
+
+
+def test_usage_deshabilitado_sin_admin_token(settings):
+    client, *_ = make(settings)
+    assert client.get("/usage?token=").status_code == 404
+
+
+def test_imagen_del_webhook_llega_a_claude(settings):
+    import httpx
+
+    from app.media import MediaProcessor
+
+    png = b"\x89PNG\r\n\x1a\n" + b"0" * 10
+    http = httpx.AsyncClient(transport=httpx.MockTransport(
+        lambda request: httpx.Response(200, content=png, headers={"content-type": "image/png"})))
+    cw = FakeChatwoot()
+    llm = FakeLLM(response(tool_use("responder", texto="¡Esa la tenemos!")))
+    service = BotService(settings, ClientRegistry(ROOT / "clients"), cw, Agent(llm, cw, settings),
+                         media=MediaProcessor(http, ("chatwoot.test",)))
+    client = TestClient(create_app(service))
+    payload = incoming(content="¿Tienen esta?", attachments=[
+        {"id": 3, "file_type": "image", "data_url": "https://chatwoot.test/rails/active_storage/blobs/x"}])
+    client.post("/webhook?token=s3cret", json=payload)
+    content = llm.calls[0]["messages"][-1]["content"]
+    assert [b["type"] for b in content] == ["text", "image"]
+    assert content[0]["text"] == "¿Tienen esta?\n[El cliente envió esta imagen]"

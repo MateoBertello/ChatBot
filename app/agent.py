@@ -12,6 +12,7 @@ from .chatwoot import INCOMING, OUTGOING, TEMPLATE, ChatwootClient, ChatwootErro
 from .clients import ClientConfig
 from .config import Settings
 from .prompts import build_system_prompt, build_turn_context
+from .usage import UsageTracker
 
 logger = logging.getLogger(__name__)
 
@@ -166,10 +167,17 @@ class ConversationActions:
 
 
 class Agent:
-    def __init__(self, llm: anthropic.AsyncAnthropic, chatwoot: ChatwootClient, settings: Settings):
+    def __init__(
+        self,
+        llm: anthropic.AsyncAnthropic,
+        chatwoot: ChatwootClient,
+        settings: Settings,
+        usage: UsageTracker | None = None,
+    ):
         self.llm = llm
         self.chatwoot = chatwoot
         self.settings = settings
+        self.usage = usage
 
     async def run(
         self,
@@ -191,6 +199,8 @@ class Agent:
         try:
             for _ in range(self.settings.max_agent_steps):
                 response = await self._create(system, messages)
+                if self.usage:
+                    await self.usage.record_claude(ref.account_id, ref.conversation_id, response)
 
                 if response.stop_reason == "refusal":
                     logger.warning("Claude rechazó responder (cuenta=%s conv=%s): %s",
@@ -278,12 +288,17 @@ class Agent:
 
 # --- Historial ---------------------------------------------------------------------
 
-def build_messages(history: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def build_messages(
+    history: list[dict[str, Any]], attachments: dict[int, list[dict[str, Any]]] | None = None
+) -> list[dict[str, Any]]:
     """Convierte mensajes de Chatwoot en turnos user/assistant para la API de Claude.
 
     Los mensajes del cliente pasan como `user`; los del negocio (bot o agentes humanos),
     como `assistant`. Turnos consecutivos del mismo rol se unen en uno solo.
+    `attachments` trae, por id de mensaje, los bloques ya procesados de sus adjuntos
+    (transcripciones, imágenes, PDFs); si falta, el adjunto se menciona en texto.
     """
+    attachments = attachments or {}
     turns: list[dict[str, Any]] = []
     for msg in history:
         if msg.get("private"):
@@ -295,30 +310,46 @@ def build_messages(history: list[dict[str, Any]]) -> list[dict[str, Any]]:
             role = "assistant"
         else:
             continue
-        text = _message_text(msg)
-        if not text:
+        blocks = _message_blocks(msg, attachments.get(int(msg.get("id", 0))))
+        if role == "assistant":
+            # Claude solo acepta texto en los turnos del asistente.
+            blocks = [b for b in blocks if b["type"] == "text"]
+        if not blocks:
             continue
         sender_type = str((msg.get("sender") or {}).get("type", "")).lower()
         if role == "assistant" and sender_type == "user":
-            text = f"[Mensaje de un agente humano] {text}"
-        if turns and turns[-1]["role"] == role:
-            turns[-1]["content"] += "\n" + text
-        else:
-            turns.append({"role": role, "content": text})
+            blocks[0] = {"type": "text", "text": f"[Mensaje de un agente humano] {blocks[0]['text']}"}
+        if not turns or turns[-1]["role"] != role:
+            turns.append({"role": role, "content": []})
+        for block in blocks:
+            _append_block(turns[-1]["content"], block)
 
     if turns and turns[0]["role"] == "assistant":
-        turns.insert(0, {"role": "user", "content": "(La conversación la inició el negocio.)"})
+        turns.insert(0, {"role": "user", "content": [{"type": "text", "text": "(La conversación la inició el negocio.)"}]})
+    for turn in turns:
+        if all(b["type"] == "text" for b in turn["content"]):
+            turn["content"] = "\n".join(b["text"] for b in turn["content"])
     return turns
 
 
-def _message_text(msg: dict[str, Any]) -> str:
-    partes = []
+def _message_blocks(msg: dict[str, Any], rendered: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+    blocks = []
     content = (msg.get("content") or "").strip()
     if content:
-        partes.append(content)
-    for att in msg.get("attachments") or []:
-        partes.append(f"[Adjunto: {att.get('file_type', 'archivo')}]")
-    return "\n".join(partes)
+        blocks.append({"type": "text", "text": content})
+    if rendered is not None:
+        blocks.extend(rendered)
+    else:
+        for att in msg.get("attachments") or []:
+            blocks.append({"type": "text", "text": f"[Adjunto: {att.get('file_type', 'archivo')}]"})
+    return blocks
+
+
+def _append_block(content: list[dict[str, Any]], block: dict[str, Any]) -> None:
+    if block["type"] == "text" and content and content[-1]["type"] == "text":
+        content[-1] = {"type": "text", "text": content[-1]["text"] + "\n" + block["text"]}
+    else:
+        content.append(block)
 
 
 def _echoable(content: list[Any]) -> list[Any]:
