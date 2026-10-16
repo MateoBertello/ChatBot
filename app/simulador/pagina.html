@@ -1,0 +1,377 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Simulador del bot</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 16 16%27%3E%3Ccircle cx=%278%27 cy=%278%27 r=%277%27 fill=%27%230D7A65%27/%3E%3C/svg%3E">
+<style>
+/* Dos columnas: a la izquierda el celular del cliente (WhatsApp), a la derecha lo que ve tu equipo en Chatwoot. */
+:root {
+  --bg: #EEF1F0;
+  --surface: #FFFFFF;
+  --fg: #17201E;
+  --muted: #5E6B68;
+  --line: #D3DBD8;
+  --accent: #0D7A65;
+  --on-accent: #FFFFFF;
+  --human: #2A5DB0;
+  --wa-bg: #EFE9E1;
+  --wa-me: #D9FDD3;
+  --wa-them: #FFFFFF;
+  --wa-bar: #F0F2F5;
+  --note: #FFF4CC;
+  --note-line: #E3C55B;
+  --danger: #B3261E;
+  --font: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0E1312; --surface: #161E1C; --fg: #E2EAE7; --muted: #95A4A0; --line: #2A3633;
+    --accent: #4FCBB0; --on-accent: #0B1412; --human: #7FA8F0; --wa-bg: #0B141A; --wa-me: #005C4B; --wa-them: #202C33;
+    --wa-bar: #1F2C33; --note: #3A3214; --note-line: #8A7424; --danger: #F2B8B5;
+    color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.45 var(--font); }
+button, input, select { font: inherit; color: inherit; }
+button { cursor: pointer; border-radius: 8px; border: 1px solid var(--line); background: var(--surface); padding: 7px 12px; }
+button:hover:not(:disabled) { border-color: var(--fg); }
+button:disabled { opacity: .5; cursor: default; }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.app { height: 100%; display: grid; grid-template-rows: auto 1fr; }
+.topbar {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px;
+  padding: 10px 16px; background: var(--surface); border-bottom: 1px solid var(--line);
+}
+.topbar h1 { font-size: 16px; margin: 0 8px 0 0; }
+.topbar label { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 13px; }
+.topbar select, .topbar input { padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.topbar .meta { margin-left: auto; color: var(--muted); font-size: 12px; }
+.topbar .meta code { font-family: var(--mono); }
+
+.main { display: grid; grid-template-columns: minmax(320px, 420px) minmax(0, 1fr); gap: 16px; padding: 16px; min-height: 0; }
+@media (max-width: 860px) { .main { grid-template-columns: 1fr; } .app { height: auto; } }
+
+/* Celular */
+.phone { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr) auto auto; border-radius: 18px; overflow: hidden; border: 1px solid var(--line); background: var(--wa-bg); min-height: 520px; }
+.phone-head { display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: var(--wa-bar); }
+.avatar { width: 34px; height: 34px; border-radius: 50%; background: var(--accent); color: var(--on-accent); display: grid; place-items: center; font-weight: 700; }
+.phone-head .name { font-weight: 600; }
+.phone-head .sub { font-size: 12px; color: var(--muted); min-height: 1.2em; }
+.chat { overflow-y: auto; padding: 14px 12px; display: flex; flex-direction: column; gap: 6px; }
+.bubble { max-width: 82%; padding: 7px 9px 5px; border-radius: 8px; box-shadow: 0 1px 0 rgba(0,0,0,.08); white-space: pre-wrap; overflow-wrap: anywhere; }
+.bubble.me { align-self: flex-end; background: var(--wa-me); border-top-right-radius: 2px; }
+.bubble.them { align-self: flex-start; background: var(--wa-them); border-top-left-radius: 2px; }
+.bubble .who { font-size: 11px; font-weight: 600; color: var(--accent); }
+.bubble .who.human { color: var(--human); }
+.bubble .time { float: right; margin: 4px 0 0 10px; font-size: 10.5px; color: var(--muted); }
+.bubble img { display: block; max-width: 100%; border-radius: 6px; margin-bottom: 4px; }
+.bubble audio { width: 230px; max-width: 100%; }
+.att-file { display: inline-block; padding: 6px 8px; border-radius: 6px; background: rgba(0,0,0,.06); margin-bottom: 4px; }
+.typing { align-self: flex-start; background: var(--wa-them); color: var(--muted); border-radius: 8px; padding: 6px 10px; font-style: italic; font-size: 13px; }
+.empty { margin: auto; text-align: center; color: var(--muted); max-width: 30ch; }
+.phone > div { min-width: 0; }
+.ideas { display: flex; gap: 6px; overflow-x: auto; padding: 8px 10px 0; background: var(--wa-bar); }
+.ideas button { white-space: nowrap; font-size: 12.5px; padding: 5px 10px; border-radius: 14px; }
+.composer { display: flex; gap: 8px; align-items: center; padding: 8px 10px; background: var(--wa-bar); }
+.composer input[type=text] { flex: 1; min-width: 0; padding: 9px 12px; border-radius: 20px; border: 1px solid var(--line); background: var(--surface); }
+.clip { position: relative; overflow: hidden; border-radius: 50%; width: 38px; height: 38px; padding: 0; display: grid; place-items: center; }
+.clip input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.attached { font-size: 12px; color: var(--muted); padding: 0 12px 6px; background: var(--wa-bar); }
+.attached button { padding: 1px 6px; font-size: 12px; margin-left: 6px; }
+
+/* Panel Chatwoot */
+.panel { display: grid; grid-template-rows: auto auto 1fr auto; gap: 12px; min-height: 0; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; min-width: 0; }
+.panel-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
+.panel-head h2 { font-size: 15px; margin: 0; }
+.pill { font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 12px; border: 1px solid currentColor; }
+.pill.pending { color: var(--accent); }
+.pill.open { color: var(--human); }
+.pill.resolved { color: var(--muted); }
+.labels { display: flex; flex-wrap: wrap; gap: 6px; }
+.label { font-size: 12px; padding: 2px 8px; border-radius: 4px; background: var(--note); border: 1px solid var(--note-line); }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; margin-left: auto; }
+.status-help { color: var(--muted); font-size: 12.5px; margin-top: 8px; }
+.usage { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; }
+.usage div { display: grid; gap: 2px; }
+.usage span { font-size: 11.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.usage b { font-size: 16px; font-variant-numeric: tabular-nums; }
+.timeline { overflow-y: auto; display: flex; flex-direction: column; gap: 8px; min-height: 200px; }
+.timeline h3 { position: sticky; top: -14px; background: var(--surface); padding-block: 4px; margin: 0 0 4px; font-size: 13px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .05em; }
+.ev { border-left: 3px solid var(--line); padding: 4px 10px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.ev .h { font-size: 11.5px; color: var(--muted); }
+.ev.in { border-color: var(--muted); }
+.ev.bot { border-color: var(--accent); }
+.ev.human { border-color: var(--human); }
+.ev.note { background: var(--note); border-color: var(--note-line); border-radius: 0 6px 6px 0; }
+.ev.activity { border: none; text-align: center; color: var(--muted); font-size: 12.5px; padding: 2px; }
+.agent-reply { display: flex; gap: 8px; }
+.agent-reply input { flex: 1; min-width: 0; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface); }
+.toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: var(--fg); color: var(--bg); padding: 10px 16px; border-radius: 8px; max-width: min(90vw, 560px); box-shadow: 0 4px 18px rgba(0,0,0,.2); }
+.toast.error { background: var(--danger); color: #fff; }
+.warn { color: var(--danger); font-size: 12.5px; }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <h1>Simulador del bot</h1>
+    <label for="cliente">Cliente <select id="cliente"></select></label>
+    <label for="contacto">Contacto <input id="contacto" value="Ana (prueba)" size="14"></label>
+    <button id="nueva" class="primary" type="button">Nueva conversación</button>
+    <span class="meta" id="meta"></span>
+  </header>
+
+  <main class="main">
+    <section class="phone" aria-label="Celular del cliente (WhatsApp)">
+      <div class="phone-head">
+        <div class="avatar" id="avatar">?</div>
+        <div><div class="name" id="negocio">Elegí un cliente</div><div class="sub" id="escribiendo"></div></div>
+      </div>
+      <div class="chat" id="chat" aria-live="polite"><p class="empty">Elegí un cliente y empezá una conversación para escribirle al bot como si fueras un cliente.</p></div>
+      <div>
+        <div class="ideas" id="ideas"></div>
+        <div class="attached" id="adjunto" hidden></div>
+      </div>
+      <form class="composer" id="form">
+        <label class="clip" title="Adjuntar foto, PDF o audio" aria-label="Adjuntar archivo">📎<input type="file" id="archivo" accept="image/*,application/pdf,audio/*"></label>
+        <input type="text" id="texto" placeholder="Escribí un mensaje" autocomplete="off" aria-label="Mensaje del cliente">
+        <button class="primary" type="submit" id="enviar">Enviar</button>
+      </form>
+    </section>
+
+    <section class="panel" aria-label="Lo que ve tu equipo en Chatwoot">
+      <div class="card">
+        <div class="panel-head">
+          <h2 id="conv-titulo">Sin conversación</h2>
+          <span class="pill" id="estado" hidden></span>
+          <div class="labels" id="labels"></div>
+          <div class="actions">
+            <button type="button" data-estado="open">Tomar conversación</button>
+            <button type="button" data-estado="resolved">Resolver</button>
+            <button type="button" data-estado="pending">Devolver al bot</button>
+          </div>
+        </div>
+        <p class="status-help" id="estado-ayuda">Así es como lo verías en Chatwoot: estado, etiquetas, notas privadas y lo que hizo el bot.</p>
+      </div>
+      <div class="card usage" id="consumo" aria-label="Consumo de esta conversación"></div>
+      <div class="card timeline" id="timeline"><h3>Conversación en Chatwoot</h3></div>
+      <form class="card agent-reply" id="form-agente">
+        <input type="text" id="texto-agente" placeholder="Responder como agente humano" autocomplete="off" aria-label="Respuesta del agente">
+        <button type="submit">Enviar como agente</button>
+      </form>
+    </section>
+  </main>
+</div>
+<div class="toast" id="toast" hidden></div>
+
+<script>
+(function () {
+  "use strict";
+  var INCOMING = 0, OUTGOING = 1, ACTIVITY = 2;
+  var IDEAS_EJEMPLO = ["¿Cuánto sale la torta rogel?", "¿Hacen envíos a Colegiales?", "¿Tienen algo sin TACC?",
+    "Quiero encargar una chocotorta para el sábado", "¿Quién ganó el partido ayer?", "Quiero hablar con una persona"];
+  var IDEAS_GENERALES = ["Hola, ¿cómo están?", "¿Qué horarios tienen?", "¿Cuánto sale…?", "¿Hacen envíos?",
+    "Quiero comprar", "¿Quién ganó el partido ayer?", "Quiero hablar con una persona"];
+  var ESTADOS = {
+    pending: ["Pendiente · atiende el bot", "El bot responde los mensajes nuevos."],
+    open: ["Abierta · atiende una persona", "El bot no responde. Usá «Devolver al bot» o «Resolver» para que vuelva a atender."],
+    resolved: ["Resuelta", "Si el cliente vuelve a escribir, pasa a Pendiente y el bot retoma."]
+  };
+
+  var $ = function (id) { return document.getElementById(id); };
+  var info = null, actual = null, ultimoJSON = "", archivo = null;
+
+  function toast(msg, error) {
+    var t = $("toast"); t.textContent = msg; t.className = "toast" + (error ? " error" : ""); t.hidden = false;
+    clearTimeout(toast._t); toast._t = setTimeout(function () { t.hidden = true; }, 4500);
+  }
+  function api(path, opts) {
+    return fetch(path, opts).then(function (r) {
+      return r.json().catch(function () { return {}; }).then(function (data) {
+        if (!r.ok) throw new Error(data.detail || ("Error " + r.status));
+        return data;
+      });
+    });
+  }
+  function form(obj) { var f = new FormData(); Object.keys(obj).forEach(function (k) { f.append(k, obj[k]); }); return f; }
+  function hora(ts) { var d = new Date(ts * 1000); return d.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" }); }
+  function el(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+  function urlLocal(u) { return u.replace(/^https?:\/\/simulador\.local/, ""); }
+  function clienteActual() { var id = Number($("cliente").value); return (info && info.clientes || []).find(function (c) { return c.account_id === id; }); }
+
+  function renderAdjuntos(cont, m) {
+    (m.attachments || []).forEach(function (a) {
+      var src = urlLocal(a.data_url);
+      if (a.file_type === "image") { var img = el("img"); img.src = src; img.alt = "Imagen enviada"; cont.appendChild(img); }
+      else if (a.file_type === "audio") { var au = el("audio"); au.controls = true; au.src = src; cont.appendChild(au); }
+      else { var f = el("a", "att-file", "📄 Archivo ." + (a.extension || "")); f.href = src; f.target = "_blank"; cont.appendChild(f); }
+    });
+  }
+
+  // *negrita* y _cursiva_ como las muestra WhatsApp (sin usar innerHTML).
+  function formatoWhatsApp(cont, texto) {
+    var re = /\*([^*\n]+)\*|_([^_\n]+)_/g, ultimo = 0, m;
+    while ((m = re.exec(texto))) {
+      if (m.index > ultimo) cont.appendChild(document.createTextNode(texto.slice(ultimo, m.index)));
+      cont.appendChild(el(m[1] != null ? "b" : "i", null, m[1] != null ? m[1] : m[2]));
+      ultimo = re.lastIndex;
+    }
+    if (ultimo < texto.length) cont.appendChild(document.createTextNode(texto.slice(ultimo)));
+  }
+
+  function renderChat(c) {
+    var chat = $("chat"); chat.textContent = "";
+    var visibles = c.mensajes.filter(function (m) { return !m.private && m.message_type !== ACTIVITY; });
+    if (!visibles.length) chat.appendChild(el("p", "empty", "Escribile al negocio como lo haría un cliente."));
+    visibles.forEach(function (m) {
+      var mio = m.message_type === INCOMING;
+      var b = el("div", "bubble " + (mio ? "me" : "them"));
+      if (!mio) {
+        var humano = m.sender && m.sender.type === "user";
+        b.appendChild(el("div", "who" + (humano ? " human" : ""), humano ? "Agente humano" : "Bot"));
+      }
+      renderAdjuntos(b, m);
+      if (m.content) formatoWhatsApp(b, m.content);
+      b.appendChild(el("span", "time", hora(m.created_at)));
+      chat.appendChild(b);
+    });
+    if (c.procesando) chat.appendChild(el("div", "typing", info && info.espera_segundos ? "escribiendo… (espera " + info.espera_segundos + " s por si mandás más mensajes)" : "escribiendo…"));
+    chat.scrollTop = chat.scrollHeight;
+    $("escribiendo").textContent = c.procesando ? "escribiendo…" : (c.status === "open" ? "te atiende una persona" : "en línea");
+  }
+
+  function renderPanel(c) {
+    $("conv-titulo").textContent = c.contacto + " · conversación #" + c.id;
+    var p = $("estado"); p.hidden = false; p.className = "pill " + c.status; p.textContent = ESTADOS[c.status][0];
+    $("estado-ayuda").textContent = ESTADOS[c.status][1];
+    var labels = $("labels"); labels.textContent = "";
+    c.labels.forEach(function (l) { labels.appendChild(el("span", "label", l)); });
+    document.querySelectorAll("[data-estado]").forEach(function (b) { b.disabled = b.dataset.estado === c.status; });
+
+    var u = c.consumo, cons = $("consumo"); cons.textContent = "";
+    [["Llamadas a Claude", u.llamadas_claude], ["Tokens de entrada", u.input_tokens.toLocaleString("es-AR")],
+     ["Leídos de caché", u.cache_read_input_tokens.toLocaleString("es-AR")], ["Tokens de salida", u.output_tokens.toLocaleString("es-AR")],
+     ["Costo estimado", "US$ " + u.costo_estimado_usd.toFixed(4)], ["Transcripciones", u.transcripciones]
+    ].forEach(function (par) { var d = el("div"); d.appendChild(el("span", null, par[0])); d.appendChild(el("b", null, String(par[1]))); cons.appendChild(d); });
+
+    var tl = $("timeline"); tl.textContent = ""; tl.appendChild(el("h3", null, "Conversación en Chatwoot"));
+    c.mensajes.forEach(function (m) {
+      var e;
+      if (m.message_type === ACTIVITY) { e = el("div", "ev activity", m.content); tl.appendChild(e); return; }
+      var tipo, quien;
+      if (m.message_type === INCOMING) { tipo = "in"; quien = c.contacto; }
+      else if (m.private) { tipo = "note"; quien = "Nota privada del bot"; }
+      else if (m.sender && m.sender.type === "user") { tipo = "human"; quien = "Agente humano"; }
+      else { tipo = "bot"; quien = "Bot"; }
+      e = el("div", "ev " + tipo);
+      e.appendChild(el("div", "h", quien + " · " + hora(m.created_at)));
+      renderAdjuntos(e, m);
+      if (m.content) e.appendChild(document.createTextNode(m.content));
+      tl.appendChild(e);
+    });
+    if (c.procesando) tl.appendChild(el("div", "ev activity", "El bot está procesando…"));
+    tl.scrollTop = tl.scrollHeight;
+  }
+
+  function refrescar() {
+    if (!actual) return;
+    api("/sim/api/conversaciones/" + actual.account_id + "/" + actual.id).then(function (c) {
+      var json = JSON.stringify(c);
+      if (json === ultimoJSON) return;
+      ultimoJSON = json; renderChat(c); renderPanel(c);
+    }).catch(function () {});
+  }
+
+  function renderIdeas() {
+    var cli = clienteActual(), ideas = $("ideas"); ideas.textContent = "";
+    var lista = cli && cli.nombre === "Panadería La Espiga" ? IDEAS_EJEMPLO : IDEAS_GENERALES;
+    lista.forEach(function (t) {
+      var b = el("button", null, t); b.type = "button";
+      b.addEventListener("click", function () { $("texto").value = t; $("texto").focus(); });
+      ideas.appendChild(b);
+    });
+  }
+
+  function nuevaConversacion() {
+    var cli = clienteActual();
+    if (!cli) return toast("No hay clientes válidos en " + (info ? info.carpeta_clientes : "clients/"), true);
+    api("/sim/api/conversaciones", { method: "POST", body: form({ account_id: cli.account_id, contacto: $("contacto").value }) })
+      .then(function (c) {
+        actual = c; ultimoJSON = "";
+        $("negocio").textContent = cli.nombre; $("avatar").textContent = cli.nombre.charAt(0);
+        refrescar(); $("texto").focus();
+      }).catch(function (e) { toast(e.message, true); });
+  }
+
+  $("form").addEventListener("submit", function (ev) {
+    ev.preventDefault();
+    if (!actual) { nuevaConversacion(); return toast("Empecé una conversación nueva; volvé a enviar el mensaje."); }
+    var texto = $("texto").value.trim();
+    if (!texto && !archivo) return;
+    var f = form({ texto: texto }); if (archivo) f.append("archivo", archivo);
+    $("texto").value = ""; quitarAdjunto();
+    api("/sim/api/conversaciones/" + actual.account_id + "/" + actual.id + "/mensajes", { method: "POST", body: f })
+      .then(function (r) { if (r.status === "ignored") toast(r.motivo); refrescar(); })
+      .catch(function (e) { toast(e.message, true); });
+  });
+
+  $("form-agente").addEventListener("submit", function (ev) {
+    ev.preventDefault();
+    var texto = $("texto-agente").value.trim();
+    if (!actual || !texto) return;
+    $("texto-agente").value = "";
+    api("/sim/api/conversaciones/" + actual.account_id + "/" + actual.id + "/agente", { method: "POST", body: form({ texto: texto }) })
+      .then(refrescar).catch(function (e) { toast(e.message, true); });
+  });
+
+  document.querySelectorAll("[data-estado]").forEach(function (b) {
+    b.addEventListener("click", function () {
+      if (!actual) return;
+      api("/sim/api/conversaciones/" + actual.account_id + "/" + actual.id + "/estado", { method: "POST", body: form({ status: b.dataset.estado }) })
+        .then(refrescar).catch(function (e) { toast(e.message, true); });
+    });
+  });
+
+  function quitarAdjunto() { archivo = null; $("archivo").value = ""; $("adjunto").hidden = true; }
+  $("archivo").addEventListener("change", function () {
+    archivo = this.files[0] || null;
+    var a = $("adjunto"); a.textContent = "";
+    if (!archivo) { a.hidden = true; return; }
+    a.appendChild(document.createTextNode("Adjunto: " + archivo.name));
+    var x = el("button", null, "quitar"); x.type = "button"; x.addEventListener("click", quitarAdjunto); a.appendChild(x);
+    a.hidden = false;
+  });
+
+  $("nueva").addEventListener("click", nuevaConversacion);
+  $("cliente").addEventListener("change", function () { renderIdeas(); nuevaConversacion(); });
+
+  api("/sim/api/info").then(function (i) {
+    info = i;
+    var sel = $("cliente");
+    i.clientes.forEach(function (c) {
+      var o = el("option", null, c.nombre ? c.account_id + " · " + c.nombre : c.account_id + " · YAML con errores");
+      o.value = c.account_id; o.disabled = !c.nombre; sel.appendChild(o);
+      if (c.error) toast("clients/" + c.account_id + ".yaml tiene errores: " + c.error, true);
+    });
+    var meta = $("meta");
+    meta.appendChild(document.createTextNode("Modelo "));
+    meta.appendChild(el("code", null, i.modelo));
+    meta.appendChild(document.createTextNode(" · esfuerzo " + i.esfuerzo + " · audios: " + (i.transcripcion || "sin transcripción")));
+    renderIdeas();
+    if (i.clientes.some(function (c) { return c.nombre; })) nuevaConversacion();
+    else toast("No encontré clientes en " + i.carpeta_clientes + ". Creá clients/<account_id>.yaml.", true);
+  }).catch(function (e) { toast("No pude conectarme con el simulador: " + e.message, true); });
+
+  setInterval(refrescar, 900);
+})();
+</script>
+</body>
+</html>

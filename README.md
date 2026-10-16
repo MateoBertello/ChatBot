@@ -111,6 +111,7 @@ app/
   clients.py        carga/validación de clients/<account_id>.yaml y horario humano
   chatwoot.py       cliente de la API de Chatwoot
   config.py         variables de entorno
+  simulador/        simulador local (python -m app.simulador)
 clients/1.yaml  cliente de ejemplo (Panadería La Espiga, account_id 1)
 tests/          tests con pytest
 ```
@@ -324,6 +325,35 @@ si `WEBHOOK_SECRET` coincide con el secret del bot. Con varios bots (un secret d
 cuenta) es más simple usar el `?token=` en la URL, que funciona siempre.
 
 ## Probar localmente
+
+### Simulador (sin Chatwoot, WhatsApp ni servidor)
+
+Para probar cómo responde el bot con la configuración de cada cliente, solo hace falta
+Python 3.11+ y una API key de Anthropic:
+
+```bash
+python -m venv .venv && source .venv/bin/activate     # en Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+export ANTHROPIC_API_KEY=sk-ant-...                    # o ponela en un archivo .env
+python -m app.simulador
+```
+
+Se abre el navegador en http://127.0.0.1:8080 con dos paneles:
+
+- **El celular del cliente:** escribís como si fueras un cliente de WhatsApp, con
+  sugerencias de mensajes para probar. Podés adjuntar fotos, PDFs y audios (los audios
+  se transcriben si configurás `TRANSCRIPTION_PROVIDER`).
+- **Lo que ve tu equipo en Chatwoot:** el estado de la conversación, las etiquetas, las
+  notas privadas del bot, los botones para tomarla, resolverla o devolvérsela al bot,
+  una caja para responder como agente humano y el consumo de tokens con el costo estimado.
+
+Corre el mismo código que en producción (servicio, agente, adjuntos, límites); solo
+Chatwoot está simulado en memoria. Lee `clients/*.yaml` en cada mensaje, así que podés
+editar el YAML y probar de nuevo sin reiniciar. Opciones: `--puerto 9000` y `--no-abrir`.
+Usa las mismas variables de entorno que el bot (`CLAUDE_MODEL`, `CLAUDE_EFFORT`,
+`DEBOUNCE_SECONDS`, etc.) y lee un `.env` en la carpeta actual si existe.
+
+### Tests
 
 ```bash
 pip install -r requirements-dev.txt
