@@ -113,3 +113,15 @@ def test_cargar_env(tmp_path, monkeypatch):
     assert "SIM_C" not in os.environ and os.environ["SIM_EXISTE"] == "viejo"
     for k in ("SIM_A", "SIM_B"):
         monkeypatch.delenv(k)
+
+
+def test_cargar_env_con_bom_y_crlf(tmp_path, monkeypatch):
+    env = tmp_path / ".env"
+    env.write_bytes("\ufeffSIM_BOM=ok\r\nSIM_CRLF=si\r\n".encode("utf-8"))
+    monkeypatch.delenv("SIM_BOM", raising=False)
+    monkeypatch.delenv("SIM_CRLF", raising=False)
+    cargar_env(env)
+    import os
+    assert os.environ["SIM_BOM"] == "ok" and os.environ["SIM_CRLF"] == "si"
+    monkeypatch.delenv("SIM_BOM")
+    monkeypatch.delenv("SIM_CRLF")

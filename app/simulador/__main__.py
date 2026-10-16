@@ -15,7 +15,8 @@ def cargar_env(path: Path) -> None:
     """Carga un archivo .env simple (CLAVE=valor) sin pisar variables ya definidas."""
     if not path.is_file():
         return
-    for linea in path.read_text(encoding="utf-8").splitlines():
+    # utf-8-sig: el Bloc de notas de Windows a veces agrega un BOM al principio del archivo.
+    for linea in path.read_text(encoding="utf-8-sig").splitlines():
         linea = linea.strip()
         if not linea or linea.startswith("#") or "=" not in linea:
             continue
@@ -45,10 +46,12 @@ def main() -> None:
         settings = get_settings()
     except RuntimeError as exc:
         sys.exit(
-            f"{exc}.\n\nDefiní una API key antes de arrancar, por ejemplo:\n"
-            "  export ANTHROPIC_API_KEY=sk-ant-...          (Anthropic directo)\n"
-            "  export OPENROUTER_API_KEY=sk-or-...          (OpenRouter)\n"
-            "o agregala a un archivo .env en esta carpeta."
+            f"{exc}.\n\nDefiní una API key antes de arrancar. Lo más simple es crear un archivo .env\n"
+            "en esta carpeta con una de estas líneas:\n"
+            "  ANTHROPIC_API_KEY=sk-ant-...      (Anthropic directo)\n"
+            "  OPENROUTER_API_KEY=sk-or-...      (OpenRouter)\n\n"
+            "O en la terminal: 'set OPENROUTER_API_KEY=sk-or-...' (Windows CMD),\n"
+            "'$env:OPENROUTER_API_KEY=\"sk-or-...\"' (PowerShell) o 'export ...' (Mac/Linux)."
         )
     logging.basicConfig(level=settings.log_level, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     try:
