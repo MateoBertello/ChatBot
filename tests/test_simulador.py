@@ -125,3 +125,21 @@ def test_cargar_env_con_bom_y_crlf(tmp_path, monkeypatch):
     assert os.environ["SIM_BOM"] == "ok" and os.environ["SIM_CRLF"] == "si"
     monkeypatch.delenv("SIM_BOM")
     monkeypatch.delenv("SIM_CRLF")
+
+
+def test_yaml_con_errores_no_rompe_la_pagina(tmp_path):
+    import shutil
+
+    from .conftest import ROOT
+
+    shutil.copy(ROOT / "clients" / "1.yaml", tmp_path / "1.yaml")
+    texto = (tmp_path / "1.yaml").read_text(encoding="utf-8")
+    (tmp_path / "2.yaml").write_text(
+        texto.replace("America/Argentina/Buenos_Aires", "Marte/Base_Alfa"), encoding="utf-8")
+    client = TestClient(create_sim_app(make_settings(clients_dir=tmp_path), llm=FakeLLM()))
+    info = client.get("/sim/api/info").json()
+    roto = next(c for c in info["clientes"] if c["account_id"] == 2)
+    assert roto["nombre"] is None and "Zona horaria desconocida" in roto["error"]
+    assert any(c["account_id"] == 1 and c["nombre"] for c in info["clientes"])
+    r = client.post("/sim/api/conversaciones", data={"account_id": 2})
+    assert r.status_code == 400 and "Zona horaria" in r.json()["detail"]

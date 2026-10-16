@@ -8,7 +8,7 @@ import re
 from datetime import datetime, time
 from pathlib import Path
 from typing import Any
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -65,7 +65,13 @@ class AtencionHumana(BaseModel):
     @field_validator("zona_horaria")
     @classmethod
     def _zona_valida(cls, v: str) -> str:
-        ZoneInfo(v)  # lanza si no existe
+        try:
+            ZoneInfo(v)
+        except (ZoneInfoNotFoundError, ValueError):
+            raise ValueError(
+                f"Zona horaria desconocida: {v!r}. Usá un nombre IANA como America/Argentina/Buenos_Aires "
+                "(en Windows hace falta el paquete tzdata: pip install -r requirements.txt)"
+            ) from None
         return v
 
     @field_validator("horario")

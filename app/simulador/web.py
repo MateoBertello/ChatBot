@@ -10,7 +10,6 @@ from pathlib import Path
 from typing import Any
 
 import httpx
-import yaml
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import HTMLResponse, Response
 
@@ -117,7 +116,7 @@ def create_sim_app(settings: Settings, llm: Any | None = None) -> FastAPI:
             try:
                 cfg = registry.get(int(path.stem))
                 clientes.append({"account_id": cfg.account_id, "nombre": cfg.negocio.nombre})
-            except (ClientNotFound, ValueError, yaml.YAMLError) as exc:
+            except Exception as exc:  # un YAML con errores no debe romper la página
                 clientes.append({"account_id": int(path.stem), "nombre": None, "error": str(exc)[:300]})
         return {
             "clientes": clientes,
@@ -135,6 +134,8 @@ def create_sim_app(settings: Settings, llm: Any | None = None) -> FastAPI:
             registry.get(account_id)
         except ClientNotFound:
             raise HTTPException(404, f"No hay clients/{account_id}.yaml") from None
+        except Exception as exc:
+            raise HTTPException(400, f"clients/{account_id}.yaml tiene errores: {exc}") from None
         conv = chatwoot.nueva_conversacion(account_id, contacto.strip() or "Cliente de prueba")
         return {"account_id": account_id, "id": conv.id}
 
