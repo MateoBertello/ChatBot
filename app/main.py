@@ -13,7 +13,6 @@ from contextlib import asynccontextmanager
 from typing import Any
 from urllib.parse import urlparse
 
-import anthropic
 import httpx
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Request
 
@@ -21,6 +20,7 @@ from .agent import Agent
 from .chatwoot import ChatwootClient
 from .clients import ClientRegistry
 from .config import get_settings
+from .llm import build_llm
 from .media import MediaProcessor
 from .service import BotService
 from .transcription import build_transcriber
@@ -68,7 +68,7 @@ def verify_webhook(headers: Any, query_token: str | None, body: bytes, secret: s
 def build_service() -> tuple[BotService, list[Any]]:
     settings = get_settings()
     chatwoot = ChatwootClient(settings.chatwoot_url)
-    llm = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
+    llm = build_llm(settings)
     usage = UsageTracker(settings.usage_file)
     media_http = httpx.AsyncClient(timeout=60.0)
     chatwoot_host = urlparse(settings.chatwoot_url).hostname or ""

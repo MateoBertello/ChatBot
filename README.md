@@ -120,14 +120,16 @@ tests/          tests con pytest
 
 | Variable | Obligatoria | Descripción |
 |---|---|---|
-| `ANTHROPIC_API_KEY` | sí | API key de Anthropic. |
+| `ANTHROPIC_API_KEY` | sí, o `OPENROUTER_API_KEY` | API key de Anthropic. |
+| `OPENROUTER_API_KEY` | alternativa | Usa Claude a través de OpenRouter (ver abajo). |
 | `CHATWOOT_URL` | sí | URL base de Chatwoot, ej. `https://chatwoot.tudominio.com`. |
 | `CHATWOOT_BOT_TOKEN` | sí | Access token del Agent Bot. |
 | `WEBHOOK_SECRET` | sí | Secreto compartido para validar los webhooks. |
 | `CHATWOOT_API_TOKEN` | recomendada | Token de un usuario administrador, **solo para leer el historial** (ver abajo). |
 | `CLIENTS_DIR` | no | Carpeta de configuraciones. Por defecto `clients` (en Docker, `/clients`). |
 | `CLAUDE_MODEL` | no | Por defecto `claude-opus-5`. |
-| `CLAUDE_EFFORT` | no | `low`, `medium` (por defecto), `high`, `xhigh`, `max`. |
+| `CLAUDE_EFFORT` | no | `low`, `medium` (por defecto), `high`, `xhigh`, `max`. Vacío = no se envía. |
+| `CLAUDE_THINKING` | no | `adaptive` (por defecto) o vacío para no enviarlo. |
 | `CLAUDE_MAX_TOKENS` | no | Por defecto `16000`. |
 | `CLAUDE_FALLBACKS` | no | `true` (por defecto) / `false`. |
 | `HISTORY_LIMIT` | no | Mensajes de contexto. Por defecto `20`. |
@@ -145,6 +147,27 @@ tests/          tests con pytest
 | `ADMIN_TOKEN` | no | Habilita `GET /usage`. Vacío = endpoint deshabilitado. |
 | `RATE_LIMIT_CONVERSATION_PER_HOUR` | no | Respuestas automáticas por conversación por hora. Por defecto `20`. |
 | `RATE_LIMIT_ACCOUNT_PER_DAY` | no | Respuestas automáticas por cuenta cada 24 h. Por defecto `1000`. |
+
+### Usar Claude a través de OpenRouter
+
+OpenRouter expone la misma API de mensajes de Anthropic, así que el bot funciona sin
+cambios de código:
+
+```
+OPENROUTER_API_KEY=sk-or-...
+CLAUDE_MODEL=anthropic/claude-haiku-5.5
+```
+
+- Los IDs de modelo usan el formato de OpenRouter (`anthropic/claude-haiku-5.5`,
+  `anthropic/claude-opus-5`, `anthropic/claude-sonnet-5`), no el de Anthropic.
+- Con OpenRouter, por defecto no se envían el `effort`, el `thinking` ni el fallback de
+  modelo (es una beta de Anthropic): el modelo usa sus valores por defecto. Haiku 5.5, por
+  ejemplo, ya piensa de forma adaptativa con esfuerzo medio. Si OpenRouter los acepta para
+  tu modelo, podés activarlos con `CLAUDE_EFFORT`, `CLAUDE_THINKING=adaptive` y
+  `CLAUDE_FALLBACKS=true`.
+- `LLM_BASE_URL` permite apuntar a otro gateway compatible con la API de Anthropic.
+- El costo estimado de `/usage` reconoce los IDs de OpenRouter, pero lo que te cobra
+  OpenRouter puede diferir (comisiones, otros proveedores); el valor real está en su panel.
 
 > **Importante sobre el historial:** Chatwoot no permite que un token de Agent Bot liste
 > los mensajes de una conversación (sí puede enviar mensajes, cambiar el estado y manejar
@@ -335,6 +358,9 @@ Python 3.11+ y una API key de Anthropic:
 python -m venv .venv && source .venv/bin/activate     # en Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 export ANTHROPIC_API_KEY=sk-ant-...                    # o ponela en un archivo .env
+# con OpenRouter, en lugar de la línea anterior:
+#   export OPENROUTER_API_KEY=sk-or-...
+#   export CLAUDE_MODEL=anthropic/claude-haiku-5.5
 python -m app.simulador
 ```
 

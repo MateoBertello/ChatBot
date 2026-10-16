@@ -9,7 +9,6 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
-import anthropic
 import httpx
 import yaml
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
@@ -18,6 +17,7 @@ from fastapi.responses import HTMLResponse, Response
 from ..agent import Agent
 from ..clients import ClientNotFound, ClientRegistry
 from ..config import Settings
+from ..llm import build_llm, provider_name
 from ..media import MediaProcessor
 from ..service import BotService
 from ..transcription import build_transcriber
@@ -70,7 +70,7 @@ def create_sim_app(settings: Settings, llm: Any | None = None) -> FastAPI:
     chatwoot = ChatwootSimulado(BASE_URL)
     consumo = ConsumoEnMemoria()
     registry = ClientRegistry(settings.clients_dir)
-    llm = llm or anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
+    llm = llm or build_llm(settings)
 
     # Los adjuntos se "descargan" de este mismo servidor, sin pasar por la red.
     media_http = httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url=BASE_URL)
@@ -122,7 +122,8 @@ def create_sim_app(settings: Settings, llm: Any | None = None) -> FastAPI:
         return {
             "clientes": clientes,
             "modelo": settings.claude_model,
-            "esfuerzo": settings.claude_effort,
+            "proveedor": provider_name(settings),
+            "esfuerzo": settings.claude_effort or "por defecto del modelo",
             "transcripcion": settings.transcription_provider if media.transcriber else None,
             "espera_segundos": settings.debounce_seconds,
             "carpeta_clientes": str(settings.clients_dir),

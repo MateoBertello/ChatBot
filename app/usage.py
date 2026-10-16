@@ -25,12 +25,20 @@ PRICES_PER_MTOK: dict[str, tuple[float, float, float]] = {
     "claude-fable-5-1": (10.00, 50.00, 0.25),
     "claude-sonnet-5": (2.00, 10.00, 0.20),
     "claude-haiku-4-5": (1.00, 5.00, 0.10),
+    # Hasta 100K tokens de prompt; por encima Anthropic cobra 5 x (no contemplado acá).
+    "claude-haiku-5-5": (0.10, 0.50, 0.01),
 }
 CACHE_WRITE_MULTIPLIER = 1.25
 
 
+def normalize_model(model: str) -> str:
+    """Lleva IDs de gateways al ID de Anthropic: "anthropic/claude-haiku-5.5:batch" -> "claude-haiku-5-5"."""
+    name = model.split("/", 1)[-1].split(":", 1)[0]
+    return name.replace(".", "-")
+
+
 def estimate_cost(model: str, input_tokens: int, output_tokens: int, cache_write: int, cache_read: int) -> float | None:
-    prices = PRICES_PER_MTOK.get(model)
+    prices = PRICES_PER_MTOK.get(normalize_model(model or ""))
     if prices is None:
         return None
     price_in, price_out, price_cache_read = prices

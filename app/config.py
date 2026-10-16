@@ -15,9 +15,16 @@ def _env(name: str, default: str | None = None, *, required: bool = False) -> st
     return value or ""
 
 
+OPENROUTER_BASE_URL = "https://openrouter.ai/api"
+
+
 @dataclass(frozen=True)
 class Settings:
     anthropic_api_key: str
+    # Gateway opcional compatible con la API de mensajes de Anthropic (p. ej. OpenRouter).
+    # Vacío = API de Anthropic directa.
+    llm_base_url: str
+    llm_auth_token: str
     chatwoot_url: str
     chatwoot_bot_token: str
     webhook_secret: str
@@ -27,7 +34,8 @@ class Settings:
     chatwoot_api_token: str
     clients_dir: Path
     claude_model: str
-    claude_effort: str
+    claude_effort: str  # vacío = no se envía (el modelo usa su valor por defecto)
+    claude_thinking: str  # "adaptive" o vacío (no se envía)
     claude_max_tokens: int
     claude_fallbacks: bool
     history_limit: int
@@ -52,17 +60,25 @@ class Settings:
 
 @lru_cache
 def get_settings() -> Settings:
+    # Con OPENROUTER_API_KEY se usa OpenRouter, que expone la misma API de mensajes de
+    # Anthropic. Por defecto no se envían parámetros que un gateway puede no aceptar
+    # (fallbacks beta, effort, thinking); el modelo usa sus valores por defecto.
+    openrouter_key = _env("OPENROUTER_API_KEY", "")
+    gateway = bool(openrouter_key)
     return Settings(
-        anthropic_api_key=_env("ANTHROPIC_API_KEY", required=True),
+        anthropic_api_key=_env("ANTHROPIC_API_KEY", required=not gateway),
+        llm_base_url=_env("LLM_BASE_URL", OPENROUTER_BASE_URL if gateway else "").rstrip("/"),
+        llm_auth_token=openrouter_key,
         chatwoot_url=_env("CHATWOOT_URL", required=True).rstrip("/"),
         chatwoot_bot_token=_env("CHATWOOT_BOT_TOKEN", required=True),
         webhook_secret=_env("WEBHOOK_SECRET", required=True),
         chatwoot_api_token=_env("CHATWOOT_API_TOKEN", ""),
         clients_dir=Path(_env("CLIENTS_DIR", "clients")),
-        claude_model=_env("CLAUDE_MODEL", "claude-opus-5"),
-        claude_effort=_env("CLAUDE_EFFORT", "medium"),
+        claude_model=_env("CLAUDE_MODEL", "anthropic/claude-opus-5" if gateway else "claude-opus-5"),
+        claude_effort=_env("CLAUDE_EFFORT", "" if gateway else "medium").lower(),
+        claude_thinking=_env("CLAUDE_THINKING", "" if gateway else "adaptive").lower(),
         claude_max_tokens=int(_env("CLAUDE_MAX_TOKENS", "16000")),
-        claude_fallbacks=_env("CLAUDE_FALLBACKS", "true").lower() in ("1", "true", "yes"),
+        claude_fallbacks=_env("CLAUDE_FALLBACKS", "false" if gateway else "true").lower() in ("1", "true", "yes"),
         history_limit=int(_env("HISTORY_LIMIT", "20")),
         debounce_seconds=float(_env("DEBOUNCE_SECONDS", "2")),
         max_agent_steps=int(_env("MAX_AGENT_STEPS", "6")),

@@ -45,8 +45,9 @@ def main() -> None:
         settings = get_settings()
     except RuntimeError as exc:
         sys.exit(
-            f"{exc}.\n\nDefinila antes de arrancar, por ejemplo:\n"
-            "  export ANTHROPIC_API_KEY=sk-ant-...\n"
+            f"{exc}.\n\nDefiní una API key antes de arrancar, por ejemplo:\n"
+            "  export ANTHROPIC_API_KEY=sk-ant-...          (Anthropic directo)\n"
+            "  export OPENROUTER_API_KEY=sk-or-...          (OpenRouter)\n"
             "o agregala a un archivo .env en esta carpeta."
         )
     logging.basicConfig(level=settings.log_level, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -56,7 +57,13 @@ def main() -> None:
         sys.exit(str(exc))
 
     url = f"http://127.0.0.1:{args.puerto}"
-    print(f"\n  Simulador del bot listo en {url}\n  Clientes: {settings.clients_dir.resolve()}\n  Ctrl+C para salir.\n")
+    from ..llm import provider_name
+
+    print(
+        f"\n  Simulador del bot listo en {url}\n"
+        f"  Modelo: {settings.claude_model} ({provider_name(settings)})\n"
+        f"  Clientes: {settings.clients_dir.resolve()}\n  Ctrl+C para salir.\n"
+    )
     if not args.no_abrir:
         threading.Timer(1.2, lambda: webbrowser.open(url)).start()
 

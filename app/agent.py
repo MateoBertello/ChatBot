@@ -238,16 +238,19 @@ class Agent:
             "system": system,
             "tools": TOOLS,
             "tool_choice": {"type": "auto"},
-            "thinking": {"type": "adaptive"},
-            "output_config": {"effort": self.settings.claude_effort},
             "messages": messages,
         }
+        if self.settings.claude_thinking == "adaptive":
+            params["thinking"] = {"type": "adaptive"}
+        if self.settings.claude_effort:
+            params["output_config"] = {"effort": self.settings.claude_effort}
         if self.settings.claude_fallbacks:
             # Si el clasificador de seguridad rechaza el pedido, la API lo reintenta en el
             # modelo de respaldo recomendado en lugar de devolver un rechazo.
             params["betas"] = [FALLBACKS_BETA]
             params["fallbacks"] = "default"
-        return await self.llm.beta.messages.create(**params)
+            return await self.llm.beta.messages.create(**params)
+        return await self.llm.messages.create(**params)
 
     async def _finish_without_tools(self, actions: ConversationActions, response: Any) -> None:
         if actions.result.replies:

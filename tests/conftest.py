@@ -16,6 +16,8 @@ from app.config import Settings  # noqa: E402
 def make_settings(**overrides: Any) -> Settings:
     base = dict(
         anthropic_api_key="test",
+        llm_base_url="",
+        llm_auth_token="",
         chatwoot_url="https://chatwoot.test",
         chatwoot_bot_token="bot-token",
         webhook_secret="s3cret",
@@ -23,6 +25,7 @@ def make_settings(**overrides: Any) -> Settings:
         clients_dir=ROOT / "clients",
         claude_model="claude-opus-5",
         claude_effort="medium",
+        claude_thinking="adaptive",
         claude_max_tokens=16000,
         claude_fallbacks=True,
         history_limit=20,
@@ -104,6 +107,7 @@ class FakeLLM:
         self._responses = list(responses)
         self.calls: list[dict] = []
         self.beta = SimpleNamespace(messages=SimpleNamespace(create=self._create))
+        self.messages = SimpleNamespace(create=self._create)
 
     async def _create(self, **params: Any) -> SimpleNamespace:
         self.calls.append({**params, "messages": list(params["messages"])})

@@ -362,7 +362,7 @@ button.primary { background: var(--accent); border-color: var(--accent); color: 
       if (c.error) toast("clients/" + c.account_id + ".yaml tiene errores: " + c.error, true);
     });
     var meta = $("meta");
-    meta.appendChild(document.createTextNode("Modelo "));
+    meta.appendChild(document.createTextNode(i.proveedor + " · modelo "));
     meta.appendChild(el("code", null, i.modelo));
     meta.appendChild(document.createTextNode(" · esfuerzo " + i.esfuerzo + " · audios: " + (i.transcripcion || "sin transcripción")));
     renderIdeas();
